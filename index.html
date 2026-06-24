@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>¿Qué serie suena?</title>
+<title>¿Qué anime suena?</title>
 
 <!-- Tipografías: Anton (condensada, tipo cartel de cine) + Inter (texto) -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -91,8 +91,11 @@
   }
   .play-btn:hover{ transform:scale(1.05); }
   .play-btn:active{ transform:scale(.97); }
-  .play-btn svg{ width:34px; height:34px; margin-left:4px; }
-  .play-btn.playing svg{ margin-left:0; }
+  .play-btn svg{ width:34px; height:34px; }
+  /* El triángulo de "play" queda visualmente descentrado, por eso se
+     desplaza un poco; el icono de "pausa" (dos barras) no lo necesita */
+  .play-btn .icon-play{ margin-left:4px; }
+  .play-btn .icon-pause{ margin-left:0; }
   .play-btn.playing{ animation:pulse 1.6s ease-out infinite; }
   @keyframes pulse{
     0%{ box-shadow:0 0 0 0 var(--red-soft), 0 14px 36px -10px var(--red-soft); }
@@ -113,6 +116,22 @@
   @keyframes bounce{ 0%,100%{ height:6px; } 50%{ height:28px; } }
 
   .player .hint{ font-size:13px; color:var(--muted); }
+
+  /* ---- Botón y texto de pista (opcional, solo si la pregunta tiene "hint") ---- */
+  .btn-hint{
+    background:transparent; color:var(--muted); border:1px solid var(--line);
+    border-radius:10px; padding:8px 16px; font-size:13px; font-weight:600;
+    cursor:pointer; font-family:inherit; transition:border-color .2s, background .2s, color .2s;
+  }
+  .btn-hint:hover{ border-color:var(--gold); color:var(--gold); background:var(--gold-soft); }
+  .btn-hint:disabled{ opacity:.4; cursor:not-allowed; }
+  .hint-text{ font-size:13px; color:var(--gold); text-align:center; }
+
+  /* ---- Fila para agrupar varios botones secundarios del reproductor ---- */
+  .controls-row{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:center; }
+
+  /* ---- Indicador "Fragmento X / Y" entre los botones Anterior/Siguiente ---- */
+  .fragment-indicator{ font-size:13px; font-weight:600; color:var(--muted); white-space:nowrap; }
 
   /* ---- Entrada de respuesta ---- */
   .answer{ display:flex; gap:10px; }
@@ -135,6 +154,16 @@
   .btn-check:active{ transform:scale(.97); }
   .btn-check:disabled{ opacity:.4; cursor:not-allowed; }
 
+  /* ---- Botón "Pasar" (discreto/secundario, alterna con "Comprobar") ---- */
+  .btn-skip{
+    background:transparent; color:var(--muted); border:1px solid var(--line);
+    border-radius:12px; padding:0 22px; font-size:15px; font-weight:600; cursor:pointer;
+    font-family:inherit; transition:border-color .2s, background .2s, color .2s;
+    white-space:nowrap;
+  }
+  .btn-skip:hover{ border-color:var(--red); color:var(--text); background:rgba(225,29,42,0.08); }
+  .btn-skip:active{ transform:scale(.97); }
+
   /* ---- Mensaje de resultado ---- */
   .feedback{
     margin-top:18px; min-height:24px; text-align:center;
@@ -145,6 +174,16 @@
   .feedback.ok{ color:var(--gold); }
   .feedback.no{ color:#ff6b74; }
   .feedback .reveal{ color:var(--text); font-weight:500; }
+
+  /* ---- Botón "Continuar" (aparece tras comprobar la respuesta) ---- */
+  .btn-continue{
+    display:block; margin:18px auto 0;
+    background:var(--red); color:#fff; border:none; border-radius:12px;
+    padding:13px 26px; font-size:15px; font-weight:600; cursor:pointer;
+    font-family:inherit; transition:background .2s, transform .1s;
+  }
+  .btn-continue:hover{ background:#f0303d; }
+  .btn-continue:active{ transform:scale(.97); }
 
   /* ---- Pantalla final ---- */
   .end{ text-align:center; padding:14px 0 6px; }
@@ -167,8 +206,8 @@
 <body>
 
   <main class="stage">
-    <p class="eyebrow">Adivina por la sintonía</p>
-    <h1 class="logo">¿Qué <span class="accent">serie</span> suena?</h1>
+    <p class="eyebrow">Adivina por la OST</p>
+    <h1 class="logo">¿Qué <span class="accent">anime</span> suena?</h1>
 
     <section class="card">
 
@@ -186,23 +225,58 @@
         </div>
 
         <div class="player" id="player">
-          <button class="play-btn" id="playBtn" aria-label="Reproducir intro">
-            <!-- icono play -->
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          <!-- Botón grande Play/Pausa (alterna): muestra el icono de PLAY
+               cuando no hay nada sonando o está en pausa, y el icono de
+               PAUSA cuando el audio está sonando. El icono se actualiza
+               solo, en función de los eventos 'play'/'pause' del audio
+               (ver marcarReproduciendo() y marcarPausado()/marcarDetenido()). -->
+          <button class="play-btn" id="playBtn" aria-label="Reproducir o pausar">
+            <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            <svg class="icon-pause hidden" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
           </button>
           <div class="eq" aria-hidden="true">
             <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
           </div>
           <p class="hint" id="playerHint">Pulsa para escuchar la intro</p>
+
+          <!-- "Reiniciar fragmento": vuelve al principio del fragmento que
+               está sonando ahora mismo. Empieza deshabilitado porque
+               todavía no hay nada cargado. -->
+          <div class="controls-row">
+            <button class="btn-hint" id="restartBtn" disabled>⏮ Reiniciar fragmento</button>
+          </div>
+
+          <!-- Navegación secuencial (NO circular) entre los fragmentos de
+               "audios": solo se muestra si la pregunta tiene más de uno.
+               "Anterior" se deshabilita en el primer fragmento y
+               "Siguiente" en el último; el indicador central muestra
+               "Fragmento X / Y" y se actualiza con cada navegación. -->
+          <div class="controls-row hidden" id="fragmentNav">
+            <button class="btn-hint" id="prevFragmentBtn">◀ Anterior fragmento</button>
+            <span class="fragment-indicator" id="fragmentIndicator">Fragmento 1 / 1</span>
+            <button class="btn-hint" id="nextFragmentBtn">Siguiente fragmento ▶</button>
+          </div>
+
+          <!-- Botón de pista: solo se muestra si la pregunta actual tiene campo "hint" -->
+          <button class="btn-hint hidden" id="hintBtn">💡 Pista</button>
+          <p class="hint-text hidden" id="hintText"></p>
         </div>
 
         <div class="answer">
-          <input id="guess" type="text" placeholder="Escribe el nombre de la serie…"
+          <input id="guess" type="text" placeholder="Escribe el nombre del anime…"
                  autocomplete="off" autocapitalize="off" spellcheck="false" />
-          <button class="btn-check" id="checkBtn">Comprobar</button>
+          <!-- "Pasar": visible solo mientras el campo está vacío. Salta la
+               pregunta sin revelar la respuesta ni sumar/restar puntos.
+               "Comprobar" se muestra en su lugar en cuanto se escribe algo. -->
+          <button class="btn-skip" id="skipBtn">Pasar</button>
+          <button class="btn-check hidden" id="checkBtn">Comprobar</button>
         </div>
 
         <p class="feedback" id="feedback"></p>
+
+        <!-- Botón "Continuar": oculto hasta que se comprueba la respuesta.
+             Al pulsarlo se detiene el audio y se pasa a la siguiente pregunta. -->
+        <button class="btn-continue hidden" id="continueBtn">Continuar ▶</button>
       </div>
 
       <!-- ===== Pantalla final ===== -->
@@ -217,42 +291,75 @@
 
 <script>
 /* =========================================================================
-   ▼▼▼  AQUÍ DEFINES TUS PREGUNTAS  ▼▼▼
+   ▼▼▼  AQUÍ DEFINES TUS PREGUNTAS (QUIZ DE BANDAS SONORAS DE ANIME)  ▼▼▼
    -------------------------------------------------------------------------
-   Cada elemento del array es una pregunta con dos campos:
+   Cada elemento del array es una pregunta con estos 4 campos:
 
-     audio   →  RUTA de tu archivo .mp3 local.
-                Pon el index.html y tus mp3 en la misma carpeta, o usa
-                una subcarpeta, p. ej.:  "audio/friends.mp3"
+     audios  →  ARRAY con las rutas de tus archivos .mp3 con la banda
+                sonora (OST). SIEMPRE es una lista, aunque solo tengas
+                un fichero. Pon el index.html y tus mp3 en la misma
+                carpeta, o usa una subcarpeta, p. ej.:
+                  - Un solo fragmento:
+                    audios: ["audio/ejemplo-1.mp3"]
+                  - Varios fragmentos (numéralos en orden: -1, -2, -3…):
+                    audios: ["audio/ejemplo-1.mp3", "audio/ejemplo-2.mp3"]
+                Comportamiento:
+                - El botón grande (Play/Pausa) siempre empieza sonando el
+                  PRIMER audio de la lista (audios[0]).
+                - Si hay más de un audio, aparecen los controles
+                  "◀ Anterior fragmento / Fragmento X de Y / Siguiente ▶"
+                  para navegar de uno en uno por la lista (sin dar la
+                  vuelta: en los extremos el botón correspondiente se
+                  deshabilita).
+                - Si solo hay un audio, esos controles de navegación NO aparecen.
+                ★★★ ESCRIBE AQUÍ LA(S) RUTA(S) REAL(ES) A TUS ARCHIVOS .MP3 ★★★
 
-     answer  →  RESPUESTA(S) correcta(s). Puede ser:
-                - un texto:            "Friends"
-                - o varias válidas:    ["Friends", "Colegas", "Amigos"]
+     answer  →  NOMBRE DEL ANIME (respuesta correcta). Puede ser:
+                - un texto:                  "Naruto"
+                - o varias respuestas válidas (p. ej. título romanizado
+                  en japonés + título en inglés/español):
+                  ["Shingeki no Kyojin", "Attack on Titan"]
                 No te preocupes por mayúsculas, tildes ni espacios:
                 el juego ya los normaliza (ver función normalizar()).
+                ★★★ ESCRIBE AQUÍ EL/LOS NOMBRE(S) DEL ANIME ★★★
+
+     track   →  (OPCIONAL) Nombre del tema musical y/o compositor/banda.
+                Se muestra entre paréntesis junto al nombre del anime
+                cuando se revela la respuesta (acierto o fallo).
+                ★★★ ESCRIBE AQUÍ EL NOMBRE DEL TEMA Y/O SU AUTOR ★★★
+
+     hint    →  (OPCIONAL) Una pista: año, estudio de animación o género.
+                Si la pones, aparecerá un botón "💡 Pista" para revelarla.
+                Si no quieres pista en una pregunta, borra esta línea
+                o pon hint: "" (vacío).
+                ★★★ ESCRIBE AQUÍ LA PISTA (AÑO / ESTUDIO / GÉNERO) ★★★
 
    Añade o quita preguntas libremente; el juego se adapta solo.
    ========================================================================= */
 const preguntas = [
   {
-    audio:  "audio/serie1.mp3",          // ← cambia por tu mp3
-    answer: "Friends"                     // ← cambia por la respuesta correcta
+    audios: ["audio/heroacademy-yousayrun-1.mp3"],            // ← RUTA(S) DE TU(S) MP3
+    answer: ["My Hero Academia", "Boku no Hero Academia"],   // ← NOMBRE DEL ANIME (JP + EN)
+    track:  "You Say Run — Yuki Hayashi",                     // ← TEMA / COMPOSITOR
+    hint:   "Año 2016 · Studio Bones · superhéroes/shonen"    // ← PISTA
   },
   {
-    audio:  "audio/serie2.mp3",
-    answer: ["Breaking Bad"]              // ← ejemplo con array de respuestas válidas
+    audios: ["audio/heroacademy-mightyu-1.mp3", "audio/heroacademy-mightyu-2.mp3"], // ← RUTA(S) DE TU(S) MP3
+    answer: ["My Hero Academia", "Boku no Hero Academia"],   // ← NOMBRE DEL ANIME (JP + EN)
+    track:  "Mighty U — Yuki Hayashi",                        // ← TEMA / COMPOSITOR
+    hint:   "Año 2016 · Studio Bones · superhéroes/shonen"    // ← PISTA
   },
   {
-    audio:  "audio/serie3.mp3",
-    answer: ["Juego de Tronos", "Game of Thrones"]  // ← acepta título en ES o EN
+    audios: ["audio/demonslayer-corps-1.mp3"],                // ← RUTA(S) DE TU(S) MP3
+    answer: ["Demon Slayer", "Kimetsu no Yaiba"],             // ← NOMBRE DEL ANIME (EN + JP)
+    track:  "Demon Corps — Go Shiina",                        // ← TEMA / COMPOSITOR
+    hint:   "Año 2019 · Studio Ufotable · cazadores de demonios" // ← PISTA
   },
   {
-    audio:  "audio/serie4.mp3",
-    answer: "Stranger Things"
-  },
-  {
-    audio:  "audio/serie5.mp3",
-    answer: ["La Casa de Papel", "Money Heist"]
+    audios: ["audio/demonslayer-rengoku-1.mp3"],              // ← RUTA(S) DE TU(S) MP3
+    answer: ["Demon Slayer", "Kimetsu no Yaiba"],             // ← NOMBRE DEL ANIME (EN + JP)
+    track:  "Rengoku — Go Shiina & Yuki Kajiura",             // ← TEMA / COMPOSITOR
+    hint:   "Año 2019 · Studio Ufotable · cazadores de demonios" // ← PISTA
   }
 ];
 /* ▲▲▲  FIN DE LA ZONA QUE DEBES EDITAR  ▲▲▲ */
@@ -264,8 +371,19 @@ const preguntas = [
 const playBtn    = document.getElementById('playBtn');
 const playerEl   = document.getElementById('player');
 const playerHint = document.getElementById('playerHint');
+const hintBtn    = document.getElementById('hintBtn');
+const hintText   = document.getElementById('hintText');
+const fragmentNav        = document.getElementById('fragmentNav');
+const prevFragmentBtn    = document.getElementById('prevFragmentBtn');
+const nextFragmentBtn    = document.getElementById('nextFragmentBtn');
+const fragmentIndicator  = document.getElementById('fragmentIndicator');
+const iconPlay   = playBtn.querySelector('.icon-play');
+const iconPause  = playBtn.querySelector('.icon-pause');
+const restartBtn = document.getElementById('restartBtn');
+const continueBtn = document.getElementById('continueBtn');
 const guessInput = document.getElementById('guess');
 const checkBtn   = document.getElementById('checkBtn');
+const skipBtn    = document.getElementById('skipBtn');
 const feedback   = document.getElementById('feedback');
 const scoreEl    = document.getElementById('score');
 const currentEl  = document.getElementById('current');
@@ -278,8 +396,13 @@ let indice = 0;          // pregunta actual
 let puntos = 0;          // aciertos
 let audio  = null;       // objeto Audio en reproducción
 let bloqueado = false;   // evita comprobar dos veces la misma ronda
+let fragmentoActual = 0; // índice del audio de "audios" que se ha reproducido por última vez
 
 totalEl.textContent = preguntas.length;
+actualizarPista();                // muestra el botón de pista si la 1ª pregunta tiene "hint"
+actualizarNavegacionFragmentos();  // muestra Anterior/Indicador/Siguiente si hay varios "audios"
+restartBtn.disabled = true; // "Reiniciar fragmento" empieza deshabilitado: aún no hay audio cargado
+actualizarBotonesRespuesta(); // con el campo vacío, se ve "Pasar" en vez de "Comprobar"
 
 /* Normaliza un texto para comparar respuestas:
    - quita espacios al principio/final  (trim)
@@ -295,30 +418,148 @@ function normalizar(texto){
     .replace(/\s+/g, " ");
 }
 
-/* Reproduce la intro de la pregunta actual */
-function reproducirIntro(){
-  const ruta = preguntas[indice].audio;
+/* Construye el texto "Nombre del anime (track)" para mostrar en el feedback.
+   Si la pregunta no tiene "track", se omite el paréntesis. */
+function textoRespuesta(pregunta){
+  const nombreAnime = [].concat(pregunta.answer)[0]; // primera respuesta válida, tal cual está escrita
+  return pregunta.track ? `${nombreAnime} (${pregunta.track})` : nombreAnime;
+}
 
-  // Detener cualquier audio previo
-  if (audio){ audio.pause(); audio.currentTime = 0; }
+/* Muestra u oculta el botón de pista según si la pregunta actual tiene "hint" */
+function actualizarPista(){
+  hintText.classList.add('hidden');
+  hintText.textContent = "";
+  if (preguntas[indice].hint){
+    hintBtn.classList.remove('hidden');
+    hintBtn.disabled = false;
+  } else {
+    hintBtn.classList.add('hidden');
+  }
+}
 
+/* Alterna entre "Pasar" y "Comprobar" según si el campo de respuesta está
+   vacío o no: con el campo vacío se ofrece "Pasar" (saltar la pregunta);
+   en cuanto se escribe algo, aparece "Comprobar" en su lugar. */
+function actualizarBotonesRespuesta(){
+  const vacio = guessInput.value.trim() === "";
+  skipBtn.classList.toggle('hidden', !vacio);
+  checkBtn.classList.toggle('hidden', vacio);
+}
+
+/* Muestra/oculta la navegación "◀ Anterior / Fragmento X de Y / Siguiente ▶"
+   y la mantiene sincronizada con "fragmentoActual":
+   - Solo se muestra si la pregunta tiene más de un fichero en "audios".
+   - La navegación NO es circular: "Anterior" se deshabilita en el primer
+     fragmento (índice 0) y "Siguiente" en el último.
+   - El indicador usa numeración empezando en 1 (no en 0) para el usuario. */
+function actualizarNavegacionFragmentos(){
+  const pregunta = preguntas[indice];
+  const total = pregunta.audios.length;
+
+  if (total <= 1){
+    fragmentNav.classList.add('hidden');
+    return;
+  }
+
+  fragmentNav.classList.remove('hidden');
+  fragmentIndicator.textContent = `Fragmento ${fragmentoActual + 1} / ${total}`;
+  prevFragmentBtn.disabled = (fragmentoActual === 0);
+  nextFragmentBtn.disabled = (fragmentoActual === total - 1);
+}
+
+/* Muestra el icono de PAUSA en el botón grande (el audio está sonando) */
+function mostrarIconoPausa(){
+  iconPlay.classList.add('hidden');
+  iconPause.classList.remove('hidden');
+}
+
+/* Muestra el icono de PLAY en el botón grande (no hay nada sonando ahora) */
+function mostrarIconoPlay(){
+  iconPlay.classList.remove('hidden');
+  iconPause.classList.add('hidden');
+}
+
+/* Pone en marcha las animaciones/textos comunes al iniciar la reproducción.
+   También cambia el botón grande a su icono de PAUSA y reactiva "Reiniciar
+   fragmento" (estaba deshabilitado mientras el audio terminaba de cargar). */
+function marcarReproduciendo(){
+  playBtn.classList.add('playing');
+  playerEl.classList.add('is-playing');
+  playerHint.textContent = "Sonando… ¿la reconoces?";
+  mostrarIconoPausa();
+  restartBtn.disabled = false;
+}
+
+/* Pone en marcha las animaciones/textos comunes al detener la reproducción
+   (el audio ha terminado del todo). El botón grande vuelve a mostrar PLAY. */
+function marcarDetenido(){
+  playBtn.classList.remove('playing');
+  playerEl.classList.remove('is-playing');
+  playerHint.textContent = "Pulsa para volver a escuchar";
+  mostrarIconoPlay();
+}
+
+/* Igual que marcarDetenido(), pero para cuando el audio está en PAUSA
+   (no ha terminado: al pulsar el botón grande se reanuda). */
+function marcarPausado(){
+  playBtn.classList.remove('playing');
+  playerEl.classList.remove('is-playing');
+  playerHint.textContent = "En pausa · pulsa para reanudar";
+  mostrarIconoPlay();
+}
+
+/* Reproduce el audio de "audios" en la posición "indiceAudio" de la lista.
+   Como cada fichero ya viene recortado, simplemente se reproduce entero
+   desde el principio (no hay segundos de inicio/fin que controlar). */
+function reproducirAudio(indiceAudio){
+  const pregunta = preguntas[indice];
+  const ruta = pregunta.audios[indiceAudio];
+
+  if (audio){ audio.pause(); }
   audio = new Audio(ruta);
 
-  audio.play().then(() => {
-    playBtn.classList.add('playing');
-    playerEl.classList.add('is-playing');
-    playerHint.textContent = "Sonando… ¿la reconoces?";
-  }).catch(() => {
+  // Mientras se carga el nuevo audio, "Reiniciar fragmento" queda
+  // deshabilitado; se reactiva en marcarReproduciendo() cuando ya suena.
+  restartBtn.disabled = true;
+
+  // El botón grande (Play/Pausa) y el ecualizador se mantienen siempre
+  // sincronizados con el estado real del audio gracias a estos eventos.
+  audio.addEventListener('play', marcarReproduciendo);
+  audio.addEventListener('pause', () => {
+    if (!audio.ended) marcarPausado(); // si ya terminó, lo gestiona onended
+  });
+
+  audio.play().catch(() => {
     // Si el mp3 aún no existe o el navegador bloquea el audio
     playerHint.textContent = "No se pudo cargar el audio (revisa la ruta del .mp3)";
   });
 
-  // Cuando termina el clip, apagamos la animación
-  audio.onended = () => {
-    playBtn.classList.remove('playing');
-    playerEl.classList.remove('is-playing');
-    playerHint.textContent = "Pulsa para volver a escuchar";
-  };
+  // Cuando termina el clip, apagamos la animación y deshabilitamos
+  // Pausa/Reiniciar (ya no hay nada que pausar ni reiniciar)
+  audio.onended = marcarDetenido;
+}
+
+/* Maneja el botón grande (Play/Pausa), que ahora alterna según el estado
+   real del audio:
+   - Si no hay audio o ya terminó → reproduce el fragmento actual
+     (fragmentoActual), que es el primero (0) si todavía no se ha
+     empezado la pregunta.
+   - Si está sonando → lo pausa.
+   - Si está en pausa → lo reanuda desde donde se quedó.
+   El icono (play/pausa) se actualiza solo mediante los eventos del
+   audio, ver marcarReproduciendo()/marcarPausado()/marcarDetenido(). */
+function alternarReproduccion(){
+  if (!audio || audio.ended){
+    reproducirAudio(fragmentoActual);
+    return;
+  }
+  if (audio.paused){
+    audio.play().catch(() => {
+      playerHint.textContent = "No se pudo reanudar el audio";
+    });
+  } else {
+    audio.pause();
+  }
 }
 
 /* Comprueba la respuesta escrita */
@@ -339,21 +580,22 @@ function comprobar(){
   bloqueado = true;
   checkBtn.disabled = true;
 
+  // Texto "Nombre del anime (track)" para mostrar siempre, acierte o falle
+  const textoAnime = textoRespuesta(preguntas[indice]);
+
   if (acierto){
     puntos++;
     scoreEl.textContent = puntos;
-    feedback.innerHTML = "¡Correcto! 🎬";
+    feedback.innerHTML = '¡Correcto! 🎬 Era <span class="reveal">' + textoAnime + '</span>';
     feedback.className = "feedback show ok";
   } else {
-    // Mostramos la primera respuesta válida tal cual está escrita en el array
-    const correcta = [].concat(preguntas[indice].answer)[0];
-    feedback.innerHTML = '¡Casi! Era <span class="reveal">' + correcta + '</span>';
+    feedback.innerHTML = '¡Casi! Era <span class="reveal">' + textoAnime + '</span>';
     feedback.className = "feedback show no";
   }
 
-  // Detener audio y pasar a la siguiente pregunta tras una pausa
-  if (audio){ audio.pause(); }
-  setTimeout(siguiente, 1600);
+  // La música sigue sonando: NO detenemos el audio ni avanzamos solos.
+  // Mostramos el botón "Continuar" para que el usuario decida cuándo pasar.
+  continueBtn.classList.remove('hidden');
 }
 
 /* Avanza a la siguiente pregunta o termina la partida */
@@ -374,6 +616,20 @@ function siguiente(){
   playBtn.classList.remove('playing');
   playerEl.classList.remove('is-playing');
   playerHint.textContent = "Pulsa para escuchar la intro";
+  fragmentoActual = 0;
+
+  // Soltamos el audio de la pregunta anterior: el botón grande vuelve a
+  // mostrar PLAY y "Reiniciar fragmento" queda deshabilitado otra vez,
+  // como al principio de cada pregunta
+  if (audio){ audio.pause(); }
+  audio = null;
+  mostrarIconoPlay();
+  restartBtn.disabled = true;
+
+  actualizarPista();
+  actualizarNavegacionFragmentos();
+  actualizarBotonesRespuesta(); // campo vacío de nuevo → reaparece "Pasar"
+  continueBtn.classList.add('hidden');
   guessInput.focus();
 }
 
@@ -386,10 +642,10 @@ function finalizar(){
 
   const ratio = puntos / preguntas.length;
   const msg = document.getElementById('endMsg');
-  if (ratio === 1)        msg.textContent = "¡Pleno! Eres una enciclopedia de las series 🍿";
+  if (ratio === 1)        msg.textContent = "¡Pleno! Eres una enciclopedia del anime 🍿";
   else if (ratio >= 0.6)  msg.textContent = "¡Muy buen oído!";
   else if (ratio > 0)     msg.textContent = "No está mal, sigue practicando.";
-  else                    msg.textContent = "¡A maratonear más series!";
+  else                    msg.textContent = "¡A maratonear más anime!";
 }
 
 /* Reiniciar la partida */
@@ -401,19 +657,80 @@ function reiniciar(){
   guessInput.value = "";
   feedback.className = "feedback";
   playerHint.textContent = "Pulsa para escuchar la intro";
+  fragmentoActual = 0;
+
+  // Soltamos cualquier audio que estuviera sonando: el botón grande vuelve
+  // a mostrar PLAY y "Reiniciar fragmento" queda deshabilitado de nuevo
+  if (audio){ audio.pause(); }
+  audio = null;
+  mostrarIconoPlay();
+  restartBtn.disabled = true;
+
+  actualizarPista();
+  actualizarNavegacionFragmentos();
+  actualizarBotonesRespuesta(); // campo vacío de nuevo → reaparece "Pasar"
+  continueBtn.classList.add('hidden');
   endEl.classList.add('hidden');
   gameEl.classList.remove('hidden');
   guessInput.focus();
 }
 
 // --- Eventos ---
-playBtn.addEventListener('click', reproducirIntro);
+playBtn.addEventListener('click', alternarReproduccion);
 checkBtn.addEventListener('click', comprobar);
+hintBtn.addEventListener('click', () => {
+  hintText.textContent = "💡 " + preguntas[indice].hint;
+  hintText.classList.remove('hidden');
+  hintBtn.disabled = true; // ya se ha revelado, evita pulsarlo de nuevo
+});
+prevFragmentBtn.addEventListener('click', () => {
+  // Retrocede un fragmento (no es circular: el botón ya está deshabilitado
+  // en el primer fragmento, así que aquí siempre hay uno anterior)
+  fragmentoActual--;
+  actualizarNavegacionFragmentos();
+  reproducirAudio(fragmentoActual);
+});
+nextFragmentBtn.addEventListener('click', () => {
+  // Avanza un fragmento (no es circular: el botón ya está deshabilitado
+  // en el último fragmento, así que aquí siempre hay uno siguiente)
+  fragmentoActual++;
+  actualizarNavegacionFragmentos();
+  reproducirAudio(fragmentoActual);
+});
+restartBtn.addEventListener('click', () => {
+  // Vuelve al inicio del fragmento que está sonando ahora mismo, sin
+  // cambiar de fragmento ni de pregunta. El evento 'play' del audio ya
+  // se encarga de reactivar la animación y el icono de pausa del botón grande.
+  if (!audio) return;
+  audio.currentTime = 0;
+  audio.play().catch(() => {
+    playerHint.textContent = "No se pudo cargar el audio (revisa la ruta del .mp3)";
+  });
+});
+continueBtn.addEventListener('click', () => {
+  // El usuario decide cuándo avanzar: detenemos el audio que esté sonando,
+  // ocultamos el botón y pasamos a la siguiente pregunta (o al final).
+  if (audio){ audio.pause(); }
+  continueBtn.classList.add('hidden');
+  siguiente();
+});
+skipBtn.addEventListener('click', () => {
+  // Saltar la pregunta: no revela la respuesta ni suma/resta puntos,
+  // solo detiene el audio y avanza (solo visible si bloqueado === false,
+  // es decir, mientras esta ronda todavía no se ha comprobado)
+  if (bloqueado) return;
+  if (audio){ audio.pause(); }
+  siguiente();
+});
 document.getElementById('replayBtn').addEventListener('click', reiniciar);
 
-// Permitir comprobar pulsando Enter en el campo de texto
+// Alterna "Pasar"/"Comprobar" cada vez que cambia el contenido del campo
+guessInput.addEventListener('input', actualizarBotonesRespuesta);
+
+// Permitir comprobar pulsando Enter, solo si hay algo escrito (si está
+// vacío, lo que corresponde es pulsar "Pasar", no mostrar un error)
 guessInput.addEventListener('keydown', (e) => {
-  if (e.key === "Enter") comprobar();
+  if (e.key === "Enter" && guessInput.value.trim() !== "") comprobar();
 });
 </script>
 </body>
