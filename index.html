@@ -133,6 +133,12 @@
   /* ---- Indicador "Fragmento X / Y" entre los botones Anterior/Siguiente ---- */
   .fragment-indicator{ font-size:13px; font-weight:600; color:var(--muted); white-space:nowrap; }
 
+  /* ---- Indicador "Intento X / 5" sobre el campo de respuesta ---- */
+  .attempt-indicator{
+    font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--muted); text-align:right; margin-bottom:6px;
+  }
+
   /* ---- Entrada de respuesta ---- */
   .answer{ display:flex; gap:10px; }
   .answer input{
@@ -262,6 +268,10 @@
           <p class="hint-text hidden" id="hintText"></p>
         </div>
 
+        <!-- Indicador de intentos: hasta 5 por pregunta. Se actualiza con
+             cada intento fallido (ver actualizarIndicadorIntentos()). -->
+        <p class="attempt-indicator" id="attemptIndicator">Intento 1 / 5</p>
+
         <div class="answer">
           <input id="guess" type="text" placeholder="Escribe el nombre del anime…"
                  autocomplete="off" autocapitalize="off" spellcheck="false" />
@@ -360,6 +370,36 @@ const preguntas = [
     answer: ["Demon Slayer", "Kimetsu no Yaiba"],             // ← NOMBRE DEL ANIME (EN + JP)
     track:  "Rengoku — Go Shiina & Yuki Kajiura",             // ← TEMA / COMPOSITOR
     hint:   "Año 2019 · Studio Ufotable · cazadores de demonios" // ← PISTA
+  },
+  {
+    audios: ["audio/jojo-goldenwind-1.mp3", "audio/jojo-goldenwind-2.mp3", "audio/jojo-goldenwind-3.mp3"], // ← RUTA(S) DE TU(S) MP3
+    answer: ["JoJo's Bizarre Adventure", "JoJo no Kimyou na Bouken"], // ← NOMBRE DEL ANIME (EN + JP)
+    track:  "Golden Wind",                                    // ← TEMA / COMPOSITOR
+    hint:   "Estudio David Production · aventura/sobrenatural" // ← PISTA
+  },
+  {
+    audios: ["audio/demonslayer-zenitsuv2-1.mp3", "audio/demonslayer-zenitsuv2-2.mp3"], // ← RUTA(S) DE TU(S) MP3
+    answer: ["Demon Slayer", "Kimetsu no Yaiba"],             // ← NOMBRE DEL ANIME (EN + JP)
+    track:  "Zenitsu",                                        // ← TEMA / COMPOSITOR
+    hint:   "Año 2019 · Studio Ufotable · cazadores de demonios" // ← PISTA
+  },
+  {
+    audios: ["audio/demonslayer-giyu-1.mp3", "audio/demonslayer-giyu-2.mp3"], // ← RUTA(S) DE TU(S) MP3
+    answer: ["Demon Slayer", "Kimetsu no Yaiba"],             // ← NOMBRE DEL ANIME (EN + JP)
+    track:  "Giyu",                                           // ← TEMA / COMPOSITOR
+    hint:   "Año 2019 · Studio Ufotable · cazadores de demonios" // ← PISTA
+  },
+  {
+    audios: ["audio/demonslayer-gyomei-1.mp3"],               // ← RUTA(S) DE TU(S) MP3
+    answer: ["Demon Slayer", "Kimetsu no Yaiba"],             // ← NOMBRE DEL ANIME (EN + JP)
+    track:  "Gyomei",                                         // ← TEMA / COMPOSITOR
+    hint:   "Año 2019 · Studio Ufotable · cazadores de demonios" // ← PISTA
+  },
+  {
+    audios: ["audio/nanatsu-perfecttime-1.mp3", "audio/nanatsu-perfecttime-2.mp3"], // ← RUTA(S) DE TU(S) MP3
+    answer: ["Nanatsu no Taizai", "The Seven Deadly Sins"],   // ← NOMBRE DEL ANIME (JP + EN)
+    track:  "Perfect Time",                                   // ← TEMA / COMPOSITOR
+    hint:   "Estudio A-1 Pictures · fantasía/acción"          // ← PISTA
   }
 ];
 /* ▲▲▲  FIN DE LA ZONA QUE DEBES EDITAR  ▲▲▲ */
@@ -384,6 +424,7 @@ const continueBtn = document.getElementById('continueBtn');
 const guessInput = document.getElementById('guess');
 const checkBtn   = document.getElementById('checkBtn');
 const skipBtn    = document.getElementById('skipBtn');
+const attemptIndicator = document.getElementById('attemptIndicator');
 const feedback   = document.getElementById('feedback');
 const scoreEl    = document.getElementById('score');
 const currentEl  = document.getElementById('current');
@@ -392,17 +433,35 @@ const gameEl     = document.getElementById('game');
 const endEl      = document.getElementById('end');
 
 // --- Estado ---
-let indice = 0;          // pregunta actual
+const MAX_INTENTOS = 5;  // número de intentos permitidos por pregunta
+let indice = 0;          // pregunta actual (índice dentro de "preguntasJuego")
 let puntos = 0;          // aciertos
 let audio  = null;       // objeto Audio en reproducción
-let bloqueado = false;   // evita comprobar dos veces la misma ronda
+let bloqueado = false;   // evita comprobar más veces tras acertar o agotar los intentos
 let fragmentoActual = 0; // índice del audio de "audios" que se ha reproducido por última vez
+let intentoActual = 1;   // intento en curso de la pregunta actual (1 a MAX_INTENTOS)
+let preguntasJuego = []; // copia barajada de "preguntas" con la que se juega esta partida
 
-totalEl.textContent = preguntas.length;
+/* Baraja un array de forma uniforme con el algoritmo de Fisher-Yates y
+   devuelve un array NUEVO (copia), sin tocar para nada el original.
+   Así "preguntas" (tu lista fuente, escrita a mano) queda siempre intacta
+   y solo se reordena la copia "preguntasJuego" con la que se juega. */
+function barajar(array){
+  const copia = [...array];
+  for (let i = copia.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    [copia[i], copia[j]] = [copia[j], copia[i]];
+  }
+  return copia;
+}
+
+preguntasJuego = barajar(preguntas); // orden aleatorio para esta partida
+totalEl.textContent = preguntasJuego.length;
 actualizarPista();                // muestra el botón de pista si la 1ª pregunta tiene "hint"
 actualizarNavegacionFragmentos();  // muestra Anterior/Indicador/Siguiente si hay varios "audios"
 restartBtn.disabled = true; // "Reiniciar fragmento" empieza deshabilitado: aún no hay audio cargado
 actualizarBotonesRespuesta(); // con el campo vacío, se ve "Pasar" en vez de "Comprobar"
+actualizarIndicadorIntentos(); // muestra "Intento 1 / 5" al empezar
 
 /* Normaliza un texto para comparar respuestas:
    - quita espacios al principio/final  (trim)
@@ -429,7 +488,7 @@ function textoRespuesta(pregunta){
 function actualizarPista(){
   hintText.classList.add('hidden');
   hintText.textContent = "";
-  if (preguntas[indice].hint){
+  if (preguntasJuego[indice].hint){
     hintBtn.classList.remove('hidden');
     hintBtn.disabled = false;
   } else {
@@ -446,6 +505,11 @@ function actualizarBotonesRespuesta(){
   checkBtn.classList.toggle('hidden', vacio);
 }
 
+/* Refleja en pantalla el intento en curso de la pregunta actual */
+function actualizarIndicadorIntentos(){
+  attemptIndicator.textContent = `Intento ${intentoActual} / ${MAX_INTENTOS}`;
+}
+
 /* Muestra/oculta la navegación "◀ Anterior / Fragmento X de Y / Siguiente ▶"
    y la mantiene sincronizada con "fragmentoActual":
    - Solo se muestra si la pregunta tiene más de un fichero en "audios".
@@ -453,7 +517,7 @@ function actualizarBotonesRespuesta(){
      fragmento (índice 0) y "Siguiente" en el último.
    - El indicador usa numeración empezando en 1 (no en 0) para el usuario. */
 function actualizarNavegacionFragmentos(){
-  const pregunta = preguntas[indice];
+  const pregunta = preguntasJuego[indice];
   const total = pregunta.audios.length;
 
   if (total <= 1){
@@ -512,7 +576,7 @@ function marcarPausado(){
    Como cada fichero ya viene recortado, simplemente se reproduce entero
    desde el principio (no hay segundos de inicio/fin que controlar). */
 function reproducirAudio(indiceAudio){
-  const pregunta = preguntas[indice];
+  const pregunta = preguntasJuego[indice];
   const ruta = pregunta.audios[indiceAudio];
 
   if (audio){ audio.pause(); }
@@ -562,7 +626,14 @@ function alternarReproduccion(){
   }
 }
 
-/* Comprueba la respuesta escrita */
+/* Comprueba la respuesta escrita. Cada pregunta admite hasta MAX_INTENTOS
+   intentos:
+   - Acierto → suma punto, revela anime+track y muestra "Continuar".
+   - Fallo con intentos restantes → feedback genérico (NO revela la
+     respuesta), avanza el indicador "Intento X / 5", limpia el campo
+     para reintentar y NO muestra "Continuar" todavía.
+   - Fallo en el último intento → revela anime+track SIN sumar punto y
+     muestra "Continuar". */
 function comprobar(){
   if (bloqueado) return;
 
@@ -574,27 +645,43 @@ function comprobar(){
   }
 
   // La respuesta correcta puede ser texto o array → lo tratamos siempre como lista
-  const validas = [].concat(preguntas[indice].answer).map(normalizar);
+  const validas = [].concat(preguntasJuego[indice].answer).map(normalizar);
   const acierto = validas.includes(respuestaUsuario);
 
-  bloqueado = true;
-  checkBtn.disabled = true;
-
-  // Texto "Nombre del anime (track)" para mostrar siempre, acierte o falle
-  const textoAnime = textoRespuesta(preguntas[indice]);
+  // Texto "Nombre del anime (track)" para mostrar al acertar o al agotar intentos
+  const textoAnime = textoRespuesta(preguntasJuego[indice]);
 
   if (acierto){
+    bloqueado = true;
+    checkBtn.disabled = true;
     puntos++;
     scoreEl.textContent = puntos;
     feedback.innerHTML = '¡Correcto! 🎬 Era <span class="reveal">' + textoAnime + '</span>';
     feedback.className = "feedback show ok";
-  } else {
-    feedback.innerHTML = '¡Casi! Era <span class="reveal">' + textoAnime + '</span>';
-    feedback.className = "feedback show no";
+    // La música sigue sonando: NO detenemos el audio ni avanzamos solos.
+    // Mostramos el botón "Continuar" para que el usuario decida cuándo pasar.
+    continueBtn.classList.remove('hidden');
+    return;
   }
 
-  // La música sigue sonando: NO detenemos el audio ni avanzamos solos.
-  // Mostramos el botón "Continuar" para que el usuario decida cuándo pasar.
+  if (intentoActual < MAX_INTENTOS){
+    // Aún quedan intentos: NO revelamos la respuesta, solo avisamos y
+    // dejamos el campo listo para volver a intentarlo
+    intentoActual++;
+    actualizarIndicadorIntentos();
+    feedback.textContent = "No es correcto, sigue intentando…";
+    feedback.className = "feedback show no";
+    guessInput.value = "";
+    actualizarBotonesRespuesta(); // campo vacío de nuevo → reaparece "Pasar"
+    guessInput.focus();
+    return;
+  }
+
+  // Era el último intento: se revela la respuesta, pero no suma punto
+  bloqueado = true;
+  checkBtn.disabled = true;
+  feedback.innerHTML = '¡Se acabaron los intentos! Era <span class="reveal">' + textoAnime + '</span>';
+  feedback.className = "feedback show no";
   continueBtn.classList.remove('hidden');
 }
 
@@ -602,7 +689,7 @@ function comprobar(){
 function siguiente(){
   indice++;
 
-  if (indice >= preguntas.length){
+  if (indice >= preguntasJuego.length){
     finalizar();
     return;
   }
@@ -617,6 +704,7 @@ function siguiente(){
   playerEl.classList.remove('is-playing');
   playerHint.textContent = "Pulsa para escuchar la intro";
   fragmentoActual = 0;
+  intentoActual = 1; // nueva pregunta → vuelta a "Intento 1 / 5"
 
   // Soltamos el audio de la pregunta anterior: el botón grande vuelve a
   // mostrar PLAY y "Reiniciar fragmento" queda deshabilitado otra vez,
@@ -629,6 +717,7 @@ function siguiente(){
   actualizarPista();
   actualizarNavegacionFragmentos();
   actualizarBotonesRespuesta(); // campo vacío de nuevo → reaparece "Pasar"
+  actualizarIndicadorIntentos();
   continueBtn.classList.add('hidden');
   guessInput.focus();
 }
@@ -638,9 +727,9 @@ function finalizar(){
   gameEl.classList.add('hidden');
   endEl.classList.remove('hidden');
   document.getElementById('finalScore').textContent = puntos;
-  document.getElementById('finalTotal').textContent = preguntas.length;
+  document.getElementById('finalTotal').textContent = preguntasJuego.length;
 
-  const ratio = puntos / preguntas.length;
+  const ratio = puntos / preguntasJuego.length;
   const msg = document.getElementById('endMsg');
   if (ratio === 1)        msg.textContent = "¡Pleno! Eres una enciclopedia del anime 🍿";
   else if (ratio >= 0.6)  msg.textContent = "¡Muy buen oído!";
@@ -651,6 +740,7 @@ function finalizar(){
 /* Reiniciar la partida */
 function reiniciar(){
   indice = 0; puntos = 0; bloqueado = false;
+  preguntasJuego = barajar(preguntas); // nueva partida → nuevo orden aleatorio
   scoreEl.textContent = "0";
   currentEl.textContent = "1";
   checkBtn.disabled = false;
@@ -658,6 +748,7 @@ function reiniciar(){
   feedback.className = "feedback";
   playerHint.textContent = "Pulsa para escuchar la intro";
   fragmentoActual = 0;
+  intentoActual = 1; // nueva partida → vuelta a "Intento 1 / 5"
 
   // Soltamos cualquier audio que estuviera sonando: el botón grande vuelve
   // a mostrar PLAY y "Reiniciar fragmento" queda deshabilitado de nuevo
@@ -669,6 +760,7 @@ function reiniciar(){
   actualizarPista();
   actualizarNavegacionFragmentos();
   actualizarBotonesRespuesta(); // campo vacío de nuevo → reaparece "Pasar"
+  actualizarIndicadorIntentos();
   continueBtn.classList.add('hidden');
   endEl.classList.add('hidden');
   gameEl.classList.remove('hidden');
@@ -679,7 +771,7 @@ function reiniciar(){
 playBtn.addEventListener('click', alternarReproduccion);
 checkBtn.addEventListener('click', comprobar);
 hintBtn.addEventListener('click', () => {
-  hintText.textContent = "💡 " + preguntas[indice].hint;
+  hintText.textContent = "💡 " + preguntasJuego[indice].hint;
   hintText.classList.remove('hidden');
   hintBtn.disabled = true; // ya se ha revelado, evita pulsarlo de nuevo
 });
